@@ -39,7 +39,7 @@ BASE_INCOME = 75.0
 # 时区配置
 SHANGHAI_TZ = pytz.timezone('Asia/Shanghai')
 
-@register("astrbot_plugin_sign", "astrbot", "签到前置", "1.0", "https://github.com/yourrepo")
+@register("astrbot_plugin_sign", "astrbot", "签到前置", "1.0", "https://github.com/zgojin/astrbot_plugin_sign")
 class ContractSystem(Star):
     def __init__(self, context: Context):
         super().__init__(context)

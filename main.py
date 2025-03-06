@@ -13,7 +13,7 @@ from typing import Dict, Any
 
 # 路径配置
 PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_sign')
-DATA_FILE = os.path.join(PLUGIN_DIR, 'sign_data.yml')
+DATA_FILE = os.path.join('data', 'sign_data.yml')
 IMAGE_DIR = os.path.join(PLUGIN_DIR, 'images')
 FONT_PATH = os.path.join(PLUGIN_DIR, '请以你的名字呼唤我.ttf')
 

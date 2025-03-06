@@ -452,7 +452,6 @@ class ContractSystem(Star):
                 )[1] * base
                 for c in data['contractors']
             )
-            # 修改点：新的连签奖励计算
             consecutive_bonus = 10 * data['consecutive']  # 显示明日可得的连签奖励
             tomorrow_interest = data["bank"] * 0.01
             
@@ -463,9 +462,6 @@ class ContractSystem(Star):
             ]
         else:
             lines = [f"{data['earned']:.1f}（含利息{data['interest']:.1f}）"]
-
-
-        # 绘制收益文本
         start_y = panel_y + 50
         for i, line in enumerate(lines):
             text_bbox = detail_font.getbbox(line)
@@ -487,7 +483,7 @@ class ContractSystem(Star):
                     fill="#333333"
                 )
 
-        # ==================== 底部数据面板 ====================
+        # 底部数据面板
         BOTTOM_HEIGHT = 150
         BOTTOM_TOP = 720 - BOTTOM_HEIGHT - 20
         bottom_panel = create_rounded_panel((1040, BOTTOM_HEIGHT), (255,255,255,150))
@@ -508,11 +504,11 @@ class ContractSystem(Star):
         else:
             contractors_display = str(len(data['contractors']))
 
-        # 数据指标（现金/银行/契约数/连续签到）
+        # 数据指标（现金/银行/黑奴/连续签到）
         metrics = [
             ("现金", f"{data['coins']:.1f}", 60),
             ("银行", f"{data['bank']:.1f}", 300),
-            ("契约数", contractors_display, 560),
+            ("黑奴", contractors_display, 560),
             ("连续签到", str(data['consecutive']), 820)
         ]
         
@@ -526,24 +522,21 @@ class ContractSystem(Star):
                 fill="#333333"
             )
             
-            # 特殊处理契约数换行
-            if title == "契约数" and data.get('is_query'):
+            if title == "黑奴" and data.get('is_query'):
                 max_line_width = 200  # 每行最大宽度
                 line_spacing = 35     # 行间距
                 current_y = BOTTOM_TOP + 70
                 current_line = []
                 
                 for name in value.split(','):
-                    # 截断超长名字（超过6字符显示为"xx.."）
+                    # 截断超长名字
                     display_name = f"{name[:6]}.." if len(name) > 6 else name
-                    # 测试行宽
                     test_line = current_line + [display_name]
                     test_text = ','.join(test_line)
                     bbox = ImageFont.truetype(FONT_PATH,28).getbbox(test_text)
                     text_width = bbox[2] - bbox[0]
                     
                     if text_width > max_line_width:
-                        # 绘制当前行
                         draw.text(
                             (x, current_y), 
                             ','.join(current_line),
@@ -554,8 +547,6 @@ class ContractSystem(Star):
                         current_y += line_spacing
                     else:
                         current_line.append(display_name)
-                
-                # 绘制剩余内容
                 if current_line:
                     draw.text(
                         (x, current_y), 
@@ -564,14 +555,12 @@ class ContractSystem(Star):
                         fill="#000000"
                     )
             else:
-                # 常规数值显示
                 draw.text(
                     (x, BOTTOM_TOP+80), 
                     value, 
                     font=ImageFont.truetype(FONT_PATH,28), 
                     fill="#000000"
                 )
-        # ==================== 版权信息 ====================
         copyright_font = ImageFont.truetype(FONT_PATH, 24)
         copyright_text = "by长安某"
         text_bbox = copyright_font.getbbox(copyright_text)

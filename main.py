@@ -39,7 +39,7 @@ BASE_INCOME = 75.0
 # 时区配置
 SHANGHAI_TZ = pytz.timezone('Asia/Shanghai')
 
-@register("astrbot_plugin_sign", "长安某", "签到前置", "1.0", "https://github.com/zgojin/astrbot_plugin_sign")
+@register("astrbot_plugin_sign", "长安某", "签到前置", "1.1", "https://github.com/zgojin/astrbot_plugin_sign")
 class ContractSystem(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -47,8 +47,12 @@ class ContractSystem(Star):
         self.data = self._load_data()
 
     def _init_env(self):
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         os.makedirs(PLUGIN_DIR, exist_ok=True)
         os.makedirs(IMAGE_DIR, exist_ok=True)
+        if not os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                yaml.dump({}, f)
         if not os.path.exists(FONT_PATH):
             raise FileNotFoundError(f"字体文件缺失: {FONT_PATH}")
 
@@ -56,13 +60,16 @@ class ContractSystem(Star):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f) or {}
-        except Exception as e:
-            self.context.logger.error(f"数据加载失败: {str(e)}")
+        except Exception:
+            # 静默失败，返回空数据
             return {}
 
     def _save_data(self):
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
-            yaml.dump(self.data, f, allow_unicode=True)
+        try:
+            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                yaml.dump(self.data, f, allow_unicode=True)
+        except Exception:
+            pass  # 静默保存失败
 
     def _get_user_data(self, group_id: str, user_id: str) -> dict:
         return self.data.setdefault(group_id, {}).setdefault(user_id, {

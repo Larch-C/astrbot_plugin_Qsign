@@ -34,7 +34,7 @@ WEALTH_BASE_VALUES = {
     "富豪": 2000,
     "巨擘": 5000
 }
-BASE_INCOME = 75.0
+BASE_INCOME = 100.0
 
 # 时区配置
 SHANGHAI_TZ = pytz.timezone('Asia/Shanghai')
@@ -72,7 +72,7 @@ class ContractSystem(Star):
             pass  # 静默保存失败
 
     def _get_user_data(self, group_id: str, user_id: str) -> dict:
-        return self.data.setdefault(group_id, {}).setdefault(user_id, {
+        user_data = self.data.setdefault(group_id, {}).setdefault(user_id, {
             "coins": 0.0,
             "bank": 0.0,
             "contractors": [],
@@ -80,9 +80,26 @@ class ContractSystem(Star):
             "last_sign": None,
             "consecutive": 0
         })
+        
+        # 读取牛牛插件的金币数据
+        niuniu_data_path = os.path.join('data', 'niuniu_lengths.yml')
+        if os.path.exists(niuniu_data_path):
+            try:
+                with open(niuniu_data_path, 'r', encoding='utf-8') as f:
+                    niuniu_data = yaml.safe_load(f) or {}
+                    # 牛牛插件的数据结构为 niuniu_data[group_id][user_id]['coins']
+                    niuniu_coins = niuniu_data.get(group_id, {}).get(user_id, {}).get('coins', 0.0)
+                    user_data['niuniu_coins'] = niuniu_coins
+            except Exception as e:
+                self.context.logger.error(f"读取牛牛插件数据失败: {str(e)}")
+                user_data['niuniu_coins'] = 0.0
+        else:
+            user_data['niuniu_coins'] = 0.0
+        
+        return user_data
 
     def _get_wealth_info(self, user_data: dict) -> tuple:
-        total = user_data["coins"] + user_data["bank"]
+        total = user_data["coins"] + user_data.get("niuniu_coins", 0.0) + user_data["bank"]
         for min_coin, name, rate in reversed(WEALTH_LEVELS):
             if total >= min_coin:
                 return (name, rate)
@@ -239,11 +256,38 @@ class ContractSystem(Star):
             yield event.chain_result([Plain(text="❌ 存款金额必须大于0")])
             return
         
-        if amount > user_data["coins"]:
+        # 计算可用总额（本插件金币 + 牛牛插件金币）
+        total_available = user_data["coins"] + user_data.get("niuniu_coins", 0.0)
+        
+        if amount > total_available:
             yield event.chain_result([Plain(text="❌ 可用金币不足")])
             return
         
-        user_data["coins"] -= amount
+        # 优先使用本插件的金币
+        if user_data["coins"] >= amount:
+            user_data["coins"] -= amount
+        else:
+            remaining = amount - user_data["coins"]
+            user_data["coins"] = 0.0
+            # 从牛牛插件的金币中扣除剩余部分
+            niuniu_data_path = os.path.join('data', 'niuniu_lengths.yml')
+            if os.path.exists(niuniu_data_path):
+                try:
+                    with open(niuniu_data_path, 'r', encoding='utf-8') as f:
+                        niuniu_data = yaml.safe_load(f) or {}
+                    # 确保群组和用户数据存在
+                    if group_id not in niuniu_data:
+                        niuniu_data[group_id] = {}
+                    if user_id not in niuniu_data[group_id]:
+                        niuniu_data[group_id][user_id] = {}
+                    niuniu_data[group_id][user_id]['coins'] = niuniu_data[group_id][user_id].get('coins', 0.0) - remaining
+                    with open(niuniu_data_path, 'w', encoding='utf-8') as f:
+                        yaml.dump(niuniu_data, f, allow_unicode=True)
+                except Exception as e:
+                    self.context.logger.error(f"更新牛牛插件数据失败: {str(e)}")
+                    yield event.chain_result([Plain(text="❌ 更新牛牛插件数据失败")])
+                    return
+        
         user_data["bank"] += amount
         self._save_data()
         yield event.chain_result([Plain(text=f"✅ 成功存入 {amount:.1f} 金币")])
@@ -305,24 +349,30 @@ class ContractSystem(Star):
         else:
             user_data["consecutive"] = 1
 
+        # 获取用户自身身份的加成
+        user_wealth_level, user_wealth_rate = self._get_wealth_info(user_data)
+        
+        # 计算契约收益加成
         contractor_rates = sum(
             self._get_wealth_info(self._get_user_data(group_id, c))[1]
             for c in user_data["contractors"]
         )
         
+        # 计算连签奖励
         consecutive_bonus = 10 * (user_data["consecutive"] - 1)  
-        earned = BASE_INCOME * (1 + contractor_rates) + consecutive_bonus
+        
+        # 计算签到收益
+        earned = BASE_INCOME * (1 + user_wealth_rate) * (1 + contractor_rates) + consecutive_bonus
 
         user_data["coins"] += earned
         user_data["last_sign"] = now.replace(tzinfo=None).isoformat()
         self._save_data()
 
-
         card_path = await self._generate_card(
             event=event,
             user_id=user_id,
             user_name=event.get_sender_name(),
-            coins=user_data["coins"],
+            coins=user_data["coins"] + user_data.get("niuniu_coins", 0.0),  # 显示总额
             bank=user_data["bank"],
             consecutive=user_data["consecutive"],
             contractors=user_data["contractors"],
@@ -333,7 +383,6 @@ class ContractSystem(Star):
             is_query=False
         )
         yield event.chain_result([Image.fromFileSystem(card_path)])
-
     @command("签到查询")
     @event_message_type(EventMessageType.GROUP_MESSAGE)
     async def sign_query(self, event: AstrMessageEvent):
@@ -341,17 +390,26 @@ class ContractSystem(Star):
         user_id = str(event.get_sender_id())
         user_data = self._get_user_data(group_id, user_id)
         
+        # 获取用户自身身份的加成
+        user_wealth_level, user_wealth_rate = self._get_wealth_info(user_data)
+        
+        # 计算契约收益加成
         contractor_rates = sum(
             self._get_wealth_info(self._get_user_data(group_id, c))[1]
             for c in user_data["contractors"]
         )
-        earned = BASE_INCOME * (1 + contractor_rates)
         
+        # 计算连签奖励
+        consecutive_bonus = 10 * user_data["consecutive"]
+        
+        # 计算预期收益
+        earned = BASE_INCOME * (1 + user_wealth_rate) * (1 + contractor_rates) + consecutive_bonus
+
         card_path = await self._generate_card(
             event=event,
             user_id=user_id,
             user_name=event.get_sender_name(),
-            coins=user_data["coins"],
+            coins=user_data["coins"] + user_data.get("niuniu_coins", 0.0),  # 显示总额
             bank=user_data["bank"],
             consecutive=user_data["consecutive"],
             contractors=user_data["contractors"],
@@ -359,7 +417,8 @@ class ContractSystem(Star):
             interest=user_data["bank"] * 0.01,
             earned=earned,
             group_id=group_id,
-            is_query=True
+            is_query=True,
+            user_wealth_rate=user_wealth_rate
         )
         yield event.chain_result([Image.fromFileSystem(card_path)])
 
@@ -452,20 +511,21 @@ class ContractSystem(Star):
         line_height = 35
         
         if data.get('is_query'):
-            base = BASE_INCOME
+            # 计算加成后的基础收益
+            base_with_bonus = BASE_INCOME * (1 + data['user_wealth_rate'])
             contract_bonus = sum(
                 self._get_wealth_info(
                     self._get_user_data(data['group_id'], c)
-                )[1] * base
+                )[1] * base_with_bonus  # 使用加成后的基础收益计算契约加成
                 for c in data['contractors']
             )
             consecutive_bonus = 10 * data['consecutive']  # 显示明日可得的连签奖励
             tomorrow_interest = data["bank"] * 0.01
             
-            total = base + contract_bonus + consecutive_bonus + tomorrow_interest
+            total = base_with_bonus + contract_bonus + consecutive_bonus + tomorrow_interest
             lines = [
                 f"{total:.1f} 金币",
-                f"基础{base:.1f}+契约{contract_bonus:.1f}+连签{consecutive_bonus:.1f}+利息{tomorrow_interest:.1f}"
+                f"基础{base_with_bonus:.1f}+契约{contract_bonus:.1f}+连签{consecutive_bonus:.1f}+利息{tomorrow_interest:.1f}"
             ]
         else:
             lines = [f"{data['earned']:.1f}（含利息{data['interest']:.1f}）"]
@@ -511,7 +571,6 @@ class ContractSystem(Star):
         else:
             contractors_display = str(len(data['contractors']))
 
-        # 数据指标（现金/银行/黑奴/连续签到）
         metrics = [
             ("现金", f"{data['coins']:.1f}", 60),
             ("银行", f"{data['bank']:.1f}", 300),

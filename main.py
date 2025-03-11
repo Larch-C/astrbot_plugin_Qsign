@@ -80,26 +80,10 @@ class ContractSystem(Star):
             "last_sign": None,
             "consecutive": 0
         })
-        
-        # 读取牛牛插件的金币数据
-        niuniu_data_path = os.path.join('data', 'niuniu_lengths.yml')
-        if os.path.exists(niuniu_data_path):
-            try:
-                with open(niuniu_data_path, 'r', encoding='utf-8') as f:
-                    niuniu_data = yaml.safe_load(f) or {}
-                    # 牛牛插件的数据结构为 niuniu_data[group_id][user_id]['coins']
-                    niuniu_coins = niuniu_data.get(group_id, {}).get(user_id, {}).get('coins', 0.0)
-                    user_data['niuniu_coins'] = niuniu_coins
-            except Exception as e:
-                self.context.logger.error(f"读取牛牛插件数据失败: {str(e)}")
-                user_data['niuniu_coins'] = 0.0
-        else:
-            user_data['niuniu_coins'] = 0.0
-        
         return user_data
 
     def _get_wealth_info(self, user_data: dict) -> tuple:
-        total = user_data["coins"] + user_data.get("niuniu_coins", 0.0) + user_data["bank"]
+        total = user_data["coins"] + user_data["bank"]
         for min_coin, name, rate in reversed(WEALTH_LEVELS):
             if total >= min_coin:
                 return (name, rate)
@@ -256,38 +240,11 @@ class ContractSystem(Star):
             yield event.chain_result([Plain(text="❌ 存款金额必须大于0")])
             return
         
-        # 计算可用总额（本插件金币 + 牛牛插件金币）
-        total_available = user_data["coins"] + user_data.get("niuniu_coins", 0.0)
-        
-        if amount > total_available:
+        if amount > user_data["coins"]:
             yield event.chain_result([Plain(text="❌ 可用金币不足")])
             return
         
-        # 优先使用本插件的金币
-        if user_data["coins"] >= amount:
-            user_data["coins"] -= amount
-        else:
-            remaining = amount - user_data["coins"]
-            user_data["coins"] = 0.0
-            # 从牛牛插件的金币中扣除剩余部分
-            niuniu_data_path = os.path.join('data', 'niuniu_lengths.yml')
-            if os.path.exists(niuniu_data_path):
-                try:
-                    with open(niuniu_data_path, 'r', encoding='utf-8') as f:
-                        niuniu_data = yaml.safe_load(f) or {}
-                    # 确保群组和用户数据存在
-                    if group_id not in niuniu_data:
-                        niuniu_data[group_id] = {}
-                    if user_id not in niuniu_data[group_id]:
-                        niuniu_data[group_id][user_id] = {}
-                    niuniu_data[group_id][user_id]['coins'] = niuniu_data[group_id][user_id].get('coins', 0.0) - remaining
-                    with open(niuniu_data_path, 'w', encoding='utf-8') as f:
-                        yaml.dump(niuniu_data, f, allow_unicode=True)
-                except Exception as e:
-                    self.context.logger.error(f"更新牛牛插件数据失败: {str(e)}")
-                    yield event.chain_result([Plain(text="❌ 更新牛牛插件数据失败")])
-                    return
-        
+        user_data["coins"] -= amount
         user_data["bank"] += amount
         self._save_data()
         yield event.chain_result([Plain(text=f"✅ 成功存入 {amount:.1f} 金币")])
@@ -372,7 +329,7 @@ class ContractSystem(Star):
             event=event,
             user_id=user_id,
             user_name=event.get_sender_name(),
-            coins=user_data["coins"] + user_data.get("niuniu_coins", 0.0),  # 显示总额
+            coins=user_data["coins"],
             bank=user_data["bank"],
             consecutive=user_data["consecutive"],
             contractors=user_data["contractors"],
@@ -409,7 +366,7 @@ class ContractSystem(Star):
             event=event,
             user_id=user_id,
             user_name=event.get_sender_name(),
-            coins=user_data["coins"] + user_data.get("niuniu_coins", 0.0),  # 显示总额
+            coins=user_data["coins"],
             bank=user_data["bank"],
             consecutive=user_data["consecutive"],
             contractors=user_data["contractors"],

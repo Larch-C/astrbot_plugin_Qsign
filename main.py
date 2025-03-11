@@ -44,7 +44,6 @@ class ContractSystem(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self._init_env()
-        self.data = self._load_data()
 
     def _init_env(self):
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
@@ -64,15 +63,22 @@ class ContractSystem(Star):
             # 静默失败，返回空数据
             return {}
 
-    def _save_data(self):
+    def _save_data(self, data):
         try:
             with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                yaml.dump(self.data, f, allow_unicode=True)
+                yaml.dump(data, f, allow_unicode=True)
         except Exception:
             pass  # 静默保存失败
 
     def _get_user_data(self, group_id: str, user_id: str) -> dict:
-        user_data = self.data.setdefault(group_id, {}).setdefault(user_id, {
+        # 每次获取用户数据时重新加载 YAML 文件
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            data = {}
+
+        user_data = data.setdefault(group_id, {}).setdefault(user_id, {
             "coins": 0.0,
             "bank": 0.0,
             "contractors": [],
@@ -80,10 +86,26 @@ class ContractSystem(Star):
             "last_sign": None,
             "consecutive": 0
         })
+        
+        # 每次获取用户数据时重新读取牛牛插件的金币数据
+        niuniu_data_path = os.path.join('data', 'niuniu_lengths.yml')
+        if os.path.exists(niuniu_data_path):
+            try:
+                with open(niuniu_data_path, 'r', encoding='utf-8') as f:
+                    niuniu_data = yaml.safe_load(f) or {}
+                # 牛牛插件的数据结构为 niuniu_data[group_id][user_id]['coins']
+                niuniu_coins = niuniu_data.get(group_id, {}).get(user_id, {}).get('coins', 0.0)
+                user_data['niuniu_coins'] = niuniu_coins
+            except Exception as e:
+                self.context.logger.error(f"读取牛牛插件数据失败: {str(e)}")
+                user_data['niuniu_coins'] = 0.0
+        else:
+            user_data['niuniu_coins'] = 0.0
+        
         return user_data
 
     def _get_wealth_info(self, user_data: dict) -> tuple:
-        total = user_data["coins"] + user_data["bank"]
+        total = user_data["coins"] + user_data.get("niuniu_coins", 0.0) + user_data["bank"]
         for min_coin, name, rate in reversed(WEALTH_LEVELS):
             if total >= min_coin:
                 return (name, rate)
@@ -144,7 +166,17 @@ class ContractSystem(Star):
         employer["coins"] -= cost
         employer["contractors"].append(target_id)
         target_user["contracted_by"] = employer_id
-        self._save_data()
+        
+        # 保存数据
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            group_data = data.setdefault(group_id, {})
+            group_data[employer_id] = employer
+            group_data[target_id] = target_user
+            self._save_data(data)
+        except Exception as e:
+            self.context.logger.error(f"保存数据失败: {str(e)}")
         
         target_name = await self._get_at_user_name(event, target_id)
         yield event.plain_result(f"✅ 成功购买 {target_name}，消耗{cost}金币")
@@ -166,7 +198,17 @@ class ContractSystem(Star):
         employer["coins"] += sell_price
         employer["contractors"].remove(target_id)
         target_user["contracted_by"] = None
-        self._save_data()
+        
+        # 保存数据
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            group_data = data.setdefault(group_id, {})
+            group_data[employer_id] = employer
+            group_data[target_id] = target_user
+            self._save_data(data)
+        except Exception as e:
+            self.context.logger.error(f"保存数据失败: {str(e)}")
         
         target_name = await self._get_at_user_name(event, target_id)
         yield event.plain_result(f"✅ 成功出售黑奴，获得{sell_price:.1f}金币")
@@ -215,7 +257,18 @@ class ContractSystem(Star):
         
         user_data["contracted_by"] = None
         user_data["coins"] -= cost
-        self._save_data()
+        
+        # 保存数据
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            group_data = data.setdefault(group_id, {})
+            group_data[user_id] = user_data
+            group_data[employer_id] = employer
+            self._save_data(data)
+        except Exception as e:
+            self.context.logger.error(f"保存数据失败: {str(e)}")
+        
         yield event.chain_result([Plain(text=f"✅ 赎身成功，消耗{cost:.1f}金币")])
 
     @command("存款")
@@ -240,13 +293,50 @@ class ContractSystem(Star):
             yield event.chain_result([Plain(text="❌ 存款金额必须大于0")])
             return
         
-        if amount > user_data["coins"]:
+        # 计算可用总额（本插件金币 + 牛牛插件金币）
+        total_available = user_data["coins"] + user_data.get("niuniu_coins", 0.0)
+        
+        if amount > total_available:
             yield event.chain_result([Plain(text="❌ 可用金币不足")])
             return
         
-        user_data["coins"] -= amount
+        # 优先使用本插件的金币
+        if user_data["coins"] >= amount:
+            user_data["coins"] -= amount
+        else:
+            remaining = amount - user_data["coins"]
+            user_data["coins"] = 0.0
+            # 从牛牛插件的金币中扣除剩余部分
+            niuniu_data_path = os.path.join('data', 'niuniu_lengths.yml')
+            if os.path.exists(niuniu_data_path):
+                try:
+                    with open(niuniu_data_path, 'r', encoding='utf-8') as f:
+                        niuniu_data = yaml.safe_load(f) or {}
+                    # 确保群组和用户数据存在
+                    if group_id not in niuniu_data:
+                        niuniu_data[group_id] = {}
+                    if user_id not in niuniu_data[group_id]:
+                        niuniu_data[group_id][user_id] = {}
+                    niuniu_data[group_id][user_id]['coins'] = niuniu_data[group_id][user_id].get('coins', 0.0) - remaining
+                    with open(niuniu_data_path, 'w', encoding='utf-8') as f:
+                        yaml.dump(niuniu_data, f, allow_unicode=True)
+                except Exception as e:
+                    self.context.logger.error(f"更新牛牛插件数据失败: {str(e)}")
+                    yield event.chain_result([Plain(text="❌ 更新牛牛插件数据失败")])
+                    return
+        
         user_data["bank"] += amount
-        self._save_data()
+        
+        # 保存数据
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            group_data = data.setdefault(group_id, {})
+            group_data[user_id] = user_data
+            self._save_data(data)
+        except Exception as e:
+            self.context.logger.error(f"保存数据失败: {str(e)}")
+        
         yield event.chain_result([Plain(text=f"✅ 成功存入 {amount:.1f} 金币")])
 
     @command("取款")
@@ -277,7 +367,17 @@ class ContractSystem(Star):
         
         user_data["bank"] -= amount
         user_data["coins"] += amount
-        self._save_data()
+        
+        # 保存数据
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            group_data = data.setdefault(group_id, {})
+            group_data[user_id] = user_data
+            self._save_data(data)
+        except Exception as e:
+            self.context.logger.error(f"保存数据失败: {str(e)}")
+        
         yield event.chain_result([Plain(text=f"✅ 成功取出 {amount:.1f} 金币")])
 
     @command("签到")
@@ -323,13 +423,22 @@ class ContractSystem(Star):
 
         user_data["coins"] += earned
         user_data["last_sign"] = now.replace(tzinfo=None).isoformat()
-        self._save_data()
+        
+        # 保存数据
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+            group_data = data.setdefault(group_id, {})
+            group_data[user_id] = user_data
+            self._save_data(data)
+        except Exception as e:
+            self.context.logger.error(f"保存数据失败: {str(e)}")
 
         card_path = await self._generate_card(
             event=event,
             user_id=user_id,
             user_name=event.get_sender_name(),
-            coins=user_data["coins"],
+            coins=user_data["coins"] + user_data.get("niuniu_coins", 0.0),  # 显示总额
             bank=user_data["bank"],
             consecutive=user_data["consecutive"],
             contractors=user_data["contractors"],
@@ -340,6 +449,7 @@ class ContractSystem(Star):
             is_query=False
         )
         yield event.chain_result([Image.fromFileSystem(card_path)])
+    
     @command("签到查询")
     @event_message_type(EventMessageType.GROUP_MESSAGE)
     async def sign_query(self, event: AstrMessageEvent):
@@ -366,7 +476,7 @@ class ContractSystem(Star):
             event=event,
             user_id=user_id,
             user_name=event.get_sender_name(),
-            coins=user_data["coins"],
+            coins=user_data["coins"] + user_data.get("niuniu_coins", 0.0),  # 显示总额
             bank=user_data["bank"],
             consecutive=user_data["consecutive"],
             contractors=user_data["contractors"],

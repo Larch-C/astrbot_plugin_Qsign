@@ -20,7 +20,6 @@ FONT_PATH = os.path.join(PLUGIN_DIR, '请以你的名字呼唤我.ttf')
 # API配置
 AVATAR_API = "http://q.qlogo.cn/headimg_dl?dst_uin={}&spec=640&img_type=jpg"
 BG_API = "https://api.fuchenboke.cn/api/dongman.php"
-
 # 经济系统配置
 WEALTH_LEVELS = [
     (0,    "平民", 0.25),
@@ -96,8 +95,7 @@ class ContractSystem(Star):
                 # 牛牛插件的数据结构为 niuniu_data[group_id][user_id]['coins']
                 niuniu_coins = niuniu_data.get(group_id, {}).get(user_id, {}).get('coins', 0.0)
                 user_data['niuniu_coins'] = niuniu_coins
-            except Exception as e:
-                self.context.logger.error(f"读取牛牛插件数据失败: {str(e)}")
+            except Exception:
                 user_data['niuniu_coins'] = 0.0
         else:
             user_data['niuniu_coins'] = 0.0
@@ -175,8 +173,8 @@ class ContractSystem(Star):
             group_data[employer_id] = employer
             group_data[target_id] = target_user
             self._save_data(data)
-        except Exception as e:
-            self.context.logger.error(f"保存数据失败: {str(e)}")
+        except Exception:
+            pass
         
         target_name = await self._get_at_user_name(event, target_id)
         yield event.plain_result(f"✅ 成功购买 {target_name}，消耗{cost}金币")
@@ -207,8 +205,8 @@ class ContractSystem(Star):
             group_data[employer_id] = employer
             group_data[target_id] = target_user
             self._save_data(data)
-        except Exception as e:
-            self.context.logger.error(f"保存数据失败: {str(e)}")
+        except Exception:
+            pass
         
         target_name = await self._get_at_user_name(event, target_id)
         yield event.plain_result(f"✅ 成功出售黑奴，获得{sell_price:.1f}金币")
@@ -230,8 +228,7 @@ class ContractSystem(Star):
             if match := re.search(r'\$CQ:at,qq=(\d+)\$', raw_msg):
                 return f'用户{match.group(1)[-4:]}'
             return f'用户{target_id[-4:]}'
-        except Exception as e:
-            self.context.logger.error(f"获取用户信息失败: {str(e)}")
+        except Exception:
             return "神秘用户"
 
     @command("赎身")
@@ -266,8 +263,8 @@ class ContractSystem(Star):
             group_data[user_id] = user_data
             group_data[employer_id] = employer
             self._save_data(data)
-        except Exception as e:
-            self.context.logger.error(f"保存数据失败: {str(e)}")
+        except Exception:
+            pass
         
         yield event.chain_result([Plain(text=f"✅ 赎身成功，消耗{cost:.1f}金币")])
 
@@ -320,8 +317,7 @@ class ContractSystem(Star):
                     niuniu_data[group_id][user_id]['coins'] = niuniu_data[group_id][user_id].get('coins', 0.0) - remaining
                     with open(niuniu_data_path, 'w', encoding='utf-8') as f:
                         yaml.dump(niuniu_data, f, allow_unicode=True)
-                except Exception as e:
-                    self.context.logger.error(f"更新牛牛插件数据失败: {str(e)}")
+                except Exception:
                     yield event.chain_result([Plain(text="❌ 更新牛牛插件数据失败")])
                     return
         
@@ -334,8 +330,8 @@ class ContractSystem(Star):
             group_data = data.setdefault(group_id, {})
             group_data[user_id] = user_data
             self._save_data(data)
-        except Exception as e:
-            self.context.logger.error(f"保存数据失败: {str(e)}")
+        except Exception:
+            pass
         
         yield event.chain_result([Plain(text=f"✅ 成功存入 {amount:.1f} 金币")])
 
@@ -375,8 +371,8 @@ class ContractSystem(Star):
             group_data = data.setdefault(group_id, {})
             group_data[user_id] = user_data
             self._save_data(data)
-        except Exception as e:
-            self.context.logger.error(f"保存数据失败: {str(e)}")
+        except Exception:
+            pass
         
         yield event.chain_result([Plain(text=f"✅ 成功取出 {amount:.1f} 金币")])
 
@@ -431,8 +427,8 @@ class ContractSystem(Star):
             group_data = data.setdefault(group_id, {})
             group_data[user_id] = user_data
             self._save_data(data)
-        except Exception as e:
-            self.context.logger.error(f"保存数据失败: {str(e)}")
+        except Exception:
+            pass
 
         card_path = await self._generate_card(
             event=event,
@@ -494,8 +490,7 @@ class ContractSystem(Star):
         try:
             bg_response = requests.get(BG_API, timeout=10)
             bg = PILImage.open(BytesIO(bg_response.content)).resize((1080, 720))
-        except Exception as e:
-            self.context.logger.error(f"背景图下载失败: {str(e)}")
+        except Exception:
             bg = PILImage.new("RGB", (1080, 720), color="#FFFFFF")
 
         def create_rounded_panel(size, color):
@@ -723,6 +718,5 @@ class ContractSystem(Star):
             bordered = PILImage.new("RGBA", (166, 166), (255,255,255,0))
             bordered.paste(img.resize((160,160)), (3,3), mask)
             return bordered
-        except Exception as e:
-            self.context.logger.error(f"头像处理异常：{str(e)}")
+        except Exception:
             return None

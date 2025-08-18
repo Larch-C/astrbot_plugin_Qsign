@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @font-face {
+            font-family: 'MyFont';
+            src: url('{{ font_path }}');
+        }
+        body {
+            margin: 0;
+            width: 100%;
+            height: 100vh; /* 占满整个视口 */
+            font-family: 'MyFont', sans-serif;
+            background-image: url('{{ bg_image_data }}');
+            background-size: cover;       /* 保持比例铺满 */
+            background-position: center;  /* 居中 */
+            background-repeat: no-repeat;
+            position: relative;
+        }
+        
+        /* --- 用户信息区 --- */
+        .user-section {
+            position: absolute;
+            top: 200px;
+            left: 60px;
+            display: flex;
+            align-items: center;
+        }
+        .avatar-container {
+            width: 166px;
+            height: 166px;
+            background-color: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            padding: 3px;
+            box-sizing: border-box;
+        }
+        .avatar {
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+        }
+        .user-info {
+            margin-left: 20px;
+            text-shadow: 1px 1px 2px black;
+        }
+        .user-info .qq { font-size: 28px; color: #000000; }
+        .user-info .name { font-size: 36px; color: #FFA500; font-weight: bold; margin-top: 5px; }
+        .user-info .status { font-size: 28px; color: #333333; margin-top: 5px; }
+
+        /* --- 面板布局 --- */
+        .panels-wrapper {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .middle-panels {
+            display: flex;
+            gap: 20px;
+        }
+
+        .panel {
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 20px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .panel-time, .panel-income {
+            flex: 1;
+            height: 120px;
+        }
+        
+        .panel-income {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .income-total {
+            font-size: 32px;
+            color: #FF4500;
+            font-weight: bold;
+        }
+        .income-detail {
+            font-size: 22px;
+            color: #333333;
+            margin-top: 8px;
+            overflow-wrap: break-word;
+        }
+
+        .panel-bottom {
+            height: 150px;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+
+        .title { font-size: 28px; color: #333333; }
+        .content { font-size: 28px; color: #333333; margin-top: 10px; }
+        .metric { text-align: center; }
+        .metric .value { font-size: 28px; color: #000000; margin-top: 20px; }
+        
+        .copyright {
+            position: absolute;
+            bottom: 10px;
+            right: 20px;
+            font-size: 24px;
+            color: #666666;
+        }
+    </style>
+</head>
+<body>
+    <!-- 用户信息区 -->
+    <div class="user-section">
+        <div class="avatar-container">
+            <img src="{{ avatar_data }}" class="avatar" />
+        </div>
+        <div class="user-info">
+            <div class="qq">QQ: {{ user_id }}</div>
+            <div class="name">{{ user_name }}</div>
+            <div class="status">身份: {{ status }} | 等级: {{ wealth_level }}</div>
+        </div>
+    </div>
+
+    <!-- 面板总容器 -->
+    <div class="panels-wrapper">
+        <!-- 中部面板行 -->
+        <div class="middle-panels">
+            <div class="panel panel-time">
+                <div class="title">{{ time_title }}</div>
+                <div class="content">{{ current_time }}</div>
+            </div>
+            <div class="panel panel-income">
+                <div class="title">{{ income_title }}</div>
+                {% if is_query %}
+                    <div class="income-total">{{ '%.1f'|format(total_income) }} 金币</div>
+                    <div class="income-detail">
+                        基础{{ '%.1f'|format(base_with_bonus) }} + 契约{{ '%.1f'|format(contract_bonus) }} + 连签{{ '%.1f'|format(consecutive_bonus) }} + 利息{{ '%.1f'|format(tomorrow_interest) }}
+                    </div>
+                {% else %}
+                    <div class="income-total">{{ '%.1f'|format(earned) }} (含利息{{ '%.1f'|format(interest) }})</div>
+                {% endif %}
+            </div>
+        </div>
+        <!-- 底部面板行 -->
+        <div class="panel panel-bottom">
+            <div class="metric">
+                <div class="title">现金</div>
+                <div class="value">{{ '%.1f'|format(coins) }}</div>
+            </div>
+            <div class="metric">
+                <div class="title">银行</div>
+                <div class="value">{{ '%.1f'|format(bank) }}</div>
+            </div>
+            <div class="metric">
+                <div class="title">雇员</div>
+                <div class="value">{{ contractors_display }}</div>
+            </div>
+            <div class="metric">
+                <div class="title">连续签到</div>
+                <div class="value">{{ consecutive }}</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
